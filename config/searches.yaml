@@ -1,0 +1,64 @@
+# Búsquedas guardadas que consulta el motor de ingesta (Módulo 1).
+#
+# Presupuesto de peticiones: cada búsqueda cuesta ~1 petición por ciclo (más si pagina).
+#   peticiones/hora ≈ Σ (3600 / interval_s) × páginas
+# Con las 8 búsquedas de abajo: ≈ 80-95 peticiones/hora (~1,5/min), muy por debajo del
+# límite configurado (VA_RATE_LIMIT_PER_MINUTE=6).
+#
+# Consejos anti falsos positivos (ARCHITECTURE.md §3.3):
+#   - price_from filtra juegos, mandos y fundas que comparten palabras clave.
+#   - catalog_ids restringe a la categoría correcta. Descubre los IDs en la URL de la
+#     categoría de vinted.es (parámetro catalog[]=…) y añádelos aquí.
+#
+# status_ids de Vinted: 6 = Nuevo con etiquetas, 1 = Nuevo sin etiquetas,
+#                       2 = Muy bueno, 3 = Bueno, 4 = Satisfactorio.
+
+searches:
+  - name: ps5
+    search_text: "ps5"
+    price_from: 150
+    price_to: 550
+    interval_s: 240
+    max_pages: 2
+
+  - name: switch-oled-y-switch-2
+    search_text: "nintendo switch"
+    price_from: 110
+    price_to: 450
+    interval_s: 300
+
+  - name: steam-deck
+    search_text: "steam deck"
+    price_from: 180
+    price_to: 650
+    interval_s: 300
+
+  - name: iphone-pro
+    search_text: "iphone pro"
+    price_from: 250
+    price_to: 1300
+    interval_s: 300
+
+  - name: rtx-40-50
+    search_text: "rtx"
+    price_from: 200
+    price_to: 1500
+    interval_s: 420
+
+  - name: airpods-pro
+    search_text: "airpods pro"
+    price_from: 70
+    price_to: 260
+    interval_s: 420
+
+  - name: sony-wh-1000xm
+    search_text: "sony wh-1000xm"
+    price_from: 90
+    price_to: 350
+    interval_s: 600
+
+  - name: fujifilm-x100
+    search_text: "fujifilm x100"
+    price_from: 400
+    price_to: 2200
+    interval_s: 600

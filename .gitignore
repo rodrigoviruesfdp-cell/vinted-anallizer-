@@ -1,0 +1,33 @@
+# Entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Datos locales (SQLite, exportaciones, capturas de depuración)
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Herramientas
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editores / SO
+.idea/
+.vscode/
+.DS_Store
