@@ -9,6 +9,7 @@ Fórmula (ver ARCHITECTURE.md §3.2)::
                   − Envío de ida (Vinted → nosotros)
                   − Envío de vuelta (nosotros → comprador final, solo si lo paga el vendedor)
                   − Embalaje
+                  − Promoción del anuncio (p. ej. "Bump" de Vinted)
                   − Reserva de riesgo (fraude, defectos ocultos, devoluciones)
                   − IVA sobre el margen (REBU, solo si operas como profesional)
 
@@ -125,13 +126,21 @@ class DealCosts:
     outbound_shipping: Decimal = Decimal("6.00")
     """Envío nosotros → comprador final. Solo es coste si ``seller_pays_shipping``."""
     packaging: Decimal = Decimal("1.50")
+    promotion: Decimal = Decimal("0.00")
+    """Promoción pagada por el vendedor (p. ej. "Bump" de Vinted de 3 o 7 días)."""
     risk_reserve_rate: Decimal = Decimal("0.03")
     """Pérdida esperada por fraude/defectos/devoluciones como fracción del precio de compra."""
     rebu_vat_rate: Decimal | None = None
     """IVA del Régimen Especial de Bienes Usados (0.21 en España). ``None`` si eres particular."""
 
     def __post_init__(self) -> None:
-        for name in ("inbound_shipping", "outbound_shipping", "packaging", "risk_reserve_rate"):
+        for name in (
+            "inbound_shipping",
+            "outbound_shipping",
+            "packaging",
+            "promotion",
+            "risk_reserve_rate",
+        ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} no puede ser negativo")
         if self.rebu_vat_rate is not None and self.rebu_vat_rate < 0:
@@ -152,6 +161,7 @@ class MarginBreakdown:
     packaging: Decimal
     risk_reserve: Decimal
     vat_on_margin: Decimal
+    promotion: Decimal = ZERO
 
     @property
     def total_costs(self) -> Decimal:
@@ -162,6 +172,7 @@ class MarginBreakdown:
             + self.resale_fees
             + self.outbound_shipping
             + self.packaging
+            + self.promotion
             + self.risk_reserve
             + self.vat_on_margin
         )
@@ -174,6 +185,7 @@ class MarginBreakdown:
             + self.vinted_fee
             + self.inbound_shipping
             + self.packaging
+            + self.promotion
             + self.outbound_shipping
         )
 
@@ -198,6 +210,7 @@ class MarginBreakdown:
             "resale_fees": str(self.resale_fees),
             "outbound_shipping": str(self.outbound_shipping),
             "packaging": str(self.packaging),
+            "promotion": str(self.promotion),
             "risk_reserve": str(self.risk_reserve),
             "vat_on_margin": str(self.vat_on_margin),
             "total_costs": str(self.total_costs),
@@ -251,6 +264,7 @@ def compute_margin(
         resale_fees=channel.fees(sale, shipping_charged),
         outbound_shipping=outbound_cost,
         packaging=money(costs.packaging),
+        promotion=money(costs.promotion),
         risk_reserve=money(purchase * costs.risk_reserve_rate),
         vat_on_margin=vat,
     )

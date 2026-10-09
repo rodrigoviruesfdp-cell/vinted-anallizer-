@@ -38,7 +38,6 @@ BREAKER_STATE_KEY = "breaker:vinted"
 BASELINE_KEY_PREFIX = "baseline_done:"
 
 PollStatus = Literal["ok", "baseline", "blocked", "circuit_open", "error"]
-NewListingsHandler = Callable[[SearchQuery, UpsertResult], Awaitable[None]]
 HealthHandler = Callable[[str], Awaitable[None]]
 
 
@@ -49,6 +48,10 @@ class PollOutcome:
     result: UpsertResult = field(default_factory=UpsertResult)
     pages: int = 0
     error: str | None = None
+
+
+NewListingsHandler = Callable[[SearchQuery, UpsertResult], Awaitable[object]]
+PolledHandler = Callable[[SearchQuery, PollOutcome], Awaitable[object]]
 
 
 class IngestionEngine:
@@ -62,6 +65,7 @@ class IngestionEngine:
         searches: Sequence[SearchQuery],
         domain: str,
         on_new: NewListingsHandler | None = None,
+        on_polled: PolledHandler | None = None,
         on_health: HealthHandler | None = None,
         interval_jitter: float = 0.2,
         clock: Callable[[], float] = time.monotonic,
@@ -80,6 +84,7 @@ class IngestionEngine:
         self._searches = [s for s in searches if s.enabled]
         self._domain = domain
         self._on_new = on_new
+        self._on_polled = on_polled
         self._on_health = on_health
         self._interval_jitter = interval_jitter
         self._clock = clock
@@ -157,13 +162,14 @@ class IngestionEngine:
             len(total.price_changes),
         )
 
+        outcome = PollOutcome(query.name, status, total, pages, error)
+        # on_polled se llama siempre que haya datos (también en la línea base) y antes que
+        # on_new: así la normalización y el mercado están al día al valorar lo nuevo.
+        if pages > 0 and self._on_polled is not None:
+            await self._call_consumer(self._on_polled(query, outcome), query, "on_polled")
         if not is_baseline and (total.new or total.price_changes) and self._on_new is not None:
-            try:
-                await self._on_new(query, total)
-            except Exception:  # un consumidor defectuoso no debe parar la ingesta
-                logger.exception("El manejador de anuncios nuevos falló para '%s'", query.name)
-
-        return PollOutcome(query.name, status, total, pages, error)
+            await self._call_consumer(self._on_new(query, total), query, "on_new")
+        return outcome
 
     # ------------------------------------------------------------------ ciclos
     async def run_once(self, only: Sequence[str] | None = None) -> list[PollOutcome]:
@@ -235,6 +241,12 @@ class IngestionEngine:
 
     def _persist_breaker(self) -> None:
         self._state.set(BREAKER_STATE_KEY, self._client.breaker.snapshot())
+
+    async def _call_consumer(self, call: Awaitable[object], query: SearchQuery, name: str) -> None:
+        try:
+            await call
+        except Exception:  # un consumidor defectuoso no debe parar la ingesta
+            logger.exception("El consumidor %s falló para '%s'", name, query.name)
 
     async def _notify_health(self, message: str) -> None:
         logger.error(message)

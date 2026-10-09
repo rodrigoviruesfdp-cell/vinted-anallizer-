@@ -1,8 +1,9 @@
 # Vinted Arbitrage Radar: arquitectura técnica y auditoría de viabilidad
 
-> **Versión** 0.1 · octubre 2026
+> **Versión** 0.2 · octubre 2026
 > **Autor:** Claude, en el rol de Principal Software Architect del proyecto
-> **Estado:** Fase 1 (auditoría) cerrada · Módulo 1 (ingesta) implementado · núcleos de los módulos 2 y 3 (normalizador y comisiones) implementados con tests
+> **Estado:** Fase 1 (auditoría) cerrada · Módulo 1 (ingesta) implementado · núcleo del Módulo 2 (normalizador) · Módulo 3 (valoración contra el mercado de Vinted) y Módulo 4 (alertas Telegram/Discord) implementados con tests
+> **Decisión v0.2:** **Vinted es el canal de reventa principal** (más fiable y rápido para el usuario); Wallapop queda como canal secundario (§2.5)
 
 Este documento recoge la evaluación técnica, los riesgos y la arquitectura propuesta **antes** del código.
 Las cifras de tarifas son las públicas a fecha de redacción. Todas son configurables y conviene revisarlas
@@ -16,9 +17,10 @@ cada trimestre: las plataformas las cambian sin aviso. Las fuentes están en la 
 |---|---|
 | ¿Es viable el arbitraje de electrónica Vinted → mercado secundario? | **Sí, pero condicionado.** Es un negocio de nicho con márgenes ajustados, no una máquina de dinero. Hay que validarlo en **modo sombra** antes de arriesgar capital (§2.4). |
 | ¿Dónde está la ventaja (el "edge")? | En que Vinted nació como mercado de moda: en electrónica hay vendedores que no conocen el precio de mercado, títulos pobres o erróneos, lotes que se pueden separar y bajadas de precio. **El edge está en clasificar mejor los anuncios, no en llegar antes que nadie.** |
-| ¿Qué descuento hace falta? | Para ganar ≥30 € netos con ROI ≥20 % revendiendo en Wallapop hay que comprar **≥23–25 % por debajo del valor de mercado** en tickets de 250 € o más. Por debajo de ~150 € el ticket casi nunca compensa (§2.2). |
+| ¿Dónde se revende? | **En el propio Vinted** (decisión v0.2). El vendedor no paga comisión, igual que en Wallapop, así que la matemática es la misma. Además, el mercado que medimos es exactamente el mercado donde vendes. Riesgo nuevo: Vinted banea cuentas estándar con actividad comercial, así que a partir de cierto volumen hace falta **Vinted Pro** (§2.5). |
+| ¿Qué descuento hace falta? | Para ganar ≥30 € netos con ROI ≥20 % revendiendo en Vinted o Wallapop hay que comprar **≥23–25 % por debajo del valor de mercado** en tickets de 250 € o más. Por debajo de ~150 € el ticket casi nunca compensa (§2.2). |
 | ¿Cuál es el mayor riesgo técnico? | **DataDome**: Vinted lo usa como protección antibot desde 2025. La estrategia que recomiendo es de bajo perfil y degradación ordenada: si salta un bloqueo, el sistema se detiene y espera. No intenta superarlo a la fuerza (§3.1). |
-| ¿Y el mayor riesgo de negocio? | Que **falte un precio de referencia fiable**. eBay cerró el acceso abierto a los precios de vendidos: la Finding API dejó de funcionar en febrero de 2025 y, según varios informes, desde julio de 2026 las búsquedas de vendidos exigen iniciar sesión. Por eso el precio de referencia tiene que salir de un **histórico propio** (§3.2). |
+| ¿Y el mayor riesgo de negocio? | Que **falte un precio de referencia fiable**. eBay cerró el acceso abierto a los precios de vendidos: la Finding API dejó de funcionar en febrero de 2025 y, según varios informes, desde julio de 2026 las búsquedas de vendidos exigen iniciar sesión. Por eso el precio de referencia sale del **mercado propio de Vinted**, que ya se mide (§3.2). |
 | ¿Stack? | **Python 3.11+ con asyncio**, `curl_cffi` (huella TLS/HTTP2 de navegador real), **SQLite en modo WAL**, alertas por **Telegram** (Discord como alternativa). |
 
 ---
@@ -39,6 +41,7 @@ Escala: **I** = impacto, **P** = probabilidad (A alta, M media, B baja).
 | R8 | **Competencia de bots** que consultan cada pocos segundos | M | A | No competir en latencia en los modelos más buscados. Competir en *matching* (anuncios mal titulados, lotes, bajadas de precio) y en el catálogo menos disputado (§2.1). |
 | R9 | **Liquidez y depreciación** (cada lanzamiento de un modelo nuevo hunde el anterior; capital inmovilizado) | M | M | Filtro de liquidez, ROI anualizado según el tiempo esperado de venta y calendario de lanzamientos (septiembre para iPhone, etc.) como factor de riesgo. |
 | R10 | **Arriesgar tu cuenta personal de Vinted** | A | M | La ingesta es **anónima**. La cuenta con la que compras nunca se usa para *scraping*. |
+| R11 | **Ban por actividad comercial** al comprar y revender en Vinted con una cuenta estándar | A | M | Vinted retira anuncios y banea cuentas estándar con actividad comercial. Con volumen habitual, usa **Vinted Pro** (autónomo; se permite 1 cuenta estándar + 1 Pro). Fotos propias siempre (§2.5). |
 
 ### 1.1 Marco legal y contractual (no es asesoramiento jurídico)
 
@@ -89,7 +92,7 @@ Con el calculador implementado (`vinted_arb.valuation.fees`) y estos supuestos:
 
 Esto da el **precio máximo de compra** según el precio de venta esperado (*S*). Entre paréntesis, el descuento sobre *S*:
 
-| S (precio de venta esperado) | Wallapop (vendedor sin comisión) | eBay.es particular (11,5 % + 0,35 €) | Wallapop como profesional en REBU |
+| S (precio de venta esperado) | Vinted o Wallapop (vendedor sin comisión) | eBay.es particular (11,5 % + 0,35 €) | Wallapop como profesional en REBU |
 |---:|---:|---:|---:|
 | 80 € | 40,09 € (−50 %) | 30,61 € (−62 %) | 32,46 € (−59 %) |
 | 150 € | 104,90 € (−30 %) | 87,97 € (−41 %) | 96,28 € (−36 %) |
@@ -105,9 +108,10 @@ Puedes reproducir la tabla con `vinted-arb fees --sell 400 --min-net 30 --min-ro
 - **El ticket mínimo útil es de ~150–200 €.** Por debajo, los costes fijos (tarifa fija, envío, embalaje) y el mínimo de 30 € exigen descuentos de más del 30–50 %.
   Eso suele indicar un producto roto o una estafa, no una ganga.
 - **Por encima de ~150 € manda el umbral de ROI** y el descuento necesario se estabiliza en un 23–25 %.
-- **Wallapop es el canal de salida principal** porque el vendedor no paga comisión. eBay exige unos 9 puntos más de descuento:
-  solo compensa si vende claramente más rápido.
-- **Revender dentro de Vinted** tampoco tiene comisión para el vendedor. Es útil como segundo canal y como fuente de histórico propio.
+- **Vinted y Wallapop dan el mismo margen**: en ninguno paga comisión el vendedor y el envío lo paga el comprador.
+  La elección entre ellos es de liquidez y comodidad, y la v0.2 elige Vinted (§2.5). eBay exige unos 9 puntos más de descuento.
+- **El "Bump" de Vinted** (destacar el anuncio, de pago, entre 3 y 7 días) es opcional. Se modela con `VA_PROMOTION_EUR`:
+  cada euro de bump se resta del margen.
 - **Operar en REBU** cuesta unos 4–5 puntos de descuento adicionales. Inclúyelo en el plan si vas a escalar.
 
 ### 2.3 Veredicto
@@ -120,6 +124,33 @@ Puedes reproducir la tabla con `vinted-arb fees --sell 400 --min-net 30 --min-ro
 4. Un protocolo de recepción y prueba.
 
 **No es viable** como "sniper" de alta frecuencia sin infraestructura antibot cara, que además no recomiendo (§3.1).
+
+### 2.5 Decisión v0.2: Vinted como canal de reventa principal
+
+**Por qué:** el usuario lo encuentra más fiable y con venta más rápida que Wallapop, y la matemática de comisiones es idéntica.
+Hay además una ventaja de arquitectura: **el mercado que mide el Módulo 1 es el mismo en el que vas a vender**.
+Los anuncios activos comparables (mismo SKU y estado) son tu competencia directa, así que el precio de referencia deja de depender de fuentes externas restringidas como eBay.
+
+**Implicaciones de diseño (implementadas):**
+
+| Aspecto | Cómo queda |
+|---|---|
+| Comisión de reventa | 0 para el vendedor; el comprador paga la "Vinted fee" y el envío (`VA_RESALE_CHANNEL=vinted`) |
+| Precio de venta esperado | `P30 de comparables × κ` sobre el mercado propio de Vinted, más el *price book* manual para arrancar (§3.2) |
+| Coste opcional | Bump o destacado (`VA_PROMOTION_EUR`) |
+| Comparable ≠ candidato | El anuncio que se evalúa se excluye de su propio mercado |
+| Calibración | κ y la liquidez se calibran con la detección de vendidos de M1.1 y con tus ventas reales (M5) |
+
+**Riesgos y prácticas específicas de revender en Vinted:**
+
+1. **Actividad comercial con cuenta estándar (R11).** Vinted indica que puede ocultar o retirar anuncios y banear cuentas estándar cuando detecta actividad comercial.
+   Comprar y revender los mismos modelos en la misma plataforma es un patrón muy visible.
+   A partir de un volumen habitual, date de alta en **Vinted Pro**: autónomo o sociedad en España; puedes tener 1 cuenta estándar y 1 Pro, con email y teléfono distintos.
+   Los compradores de vendedores Pro pagan una "Buyer Protection Pro" cuyo importe no he podido confirmar: revísalo, porque afecta a lo competitivo que es tu precio.
+2. **Fotos propias siempre.** No reutilices las fotos del anuncio original: son del otro vendedor, infringe las condiciones y los compradores reconocen las reventas.
+3. **Cobro diferido.** El dinero de la reventa se libera tras la confirmación del comprador o al cerrarse el plazo de reclamación.
+   Cuenta con 1–2 semanas de capital inmovilizado por operación en el ROI anualizado.
+4. **Descripción honesta y prueba documentada.** Con el sistema de reclamaciones de Vinted, un vídeo del funcionamiento antes de enviar te protege como vendedor.
 
 ### 2.4 Puerta de validación (go/no-go): modo sombra
 
@@ -202,20 +233,21 @@ Si se cumplen, se registran las operaciones reales (compra y venta) para **calib
 | Páginas de vendidos de eBay | Vendidos | Según varios informes de julio de 2026, **piden iniciar sesión**. Automatizar una cuenta infringe las condiciones. | Buena | Solo consulta manual puntual |
 | eBay Browse API (oficial) | **Anuncios activos** (precio pedido) | Oficial y gratuita con cuenta de desarrollador | Media: el precio pedido es mayor que el de venta | Referencia corregida por κ (ver abajo) |
 | Wallapop (API interna) | Anuncios activos + **desapariciones** | No oficial; mismo planteamiento de bajo perfil | Media-alta: es el canal de salida | Precio pedido + tiempo hasta desaparecer |
-| **Histórico propio de Vinted** (Módulo 1) | Activos + desapariciones + bajadas de precio | Ya se recoge | Alta tras unas semanas | **Fuente principal a medio plazo** |
+| **Mercado propio de Vinted** (Módulos 1 y 3) | Activos comparables + bajadas de precio (vendidos en M1.1) | **Implementado** | Alta en cuanto hay unas decenas de comparables por SKU | **Fuente principal** (canal de reventa = Vinted) |
 | CeX (webuy) | Parrilla de compra (efectivo o vale) y de venta por grado | Web pública | Alta como **suelo de liquidez** | Precio de salida garantizado |
-| *Price book* manual (CSV) | Experto | Manual | Alta en los ~50 SKUs principales | **Arranque del MVP** |
+| *Price book* manual (`config/price_book.csv`) | Experto | Manual | Alta en los ~50 SKUs principales | **Arranque** (implementado) |
 
-#### Método propuesto (Módulo 3)
+#### Método (Módulo 3, implementado en `valuation/market.py` y `valuation/reference.py`)
 
 1. **Clave de valoración:** `SKU canónico × estado`. Ejemplo: `phone:iphone-15-pro:256gb × very_good`.
 2. **Observaciones** de cada fuente con fecha y peso por recencia: $w_i = 2^{-\Delta t_i / h}$, con una vida media de $h$ = 14 días.
-3. **Precio pedido → precio de venta.** El precio pedido se corrige con un factor $\kappa$ (hipótesis inicial: 0,90), calibrado con las desapariciones observadas.
+3. **Precio pedido → precio de venta.** El precio pedido se corrige con un factor $\kappa$ (`VA_FMV_ASK_TO_SALE`, hipótesis inicial 0,92), que descuenta las ofertas a la baja que aceptarás para vender rápido. Se calibrará con los vendidos detectados (M1.1) y tus ventas reales (M5).
 4. **Limpieza robusta:** fuera las observaciones con $|x - \text{mediana}| > 3 \cdot \text{MAD}$, que suelen ser lotes, roturas o errores.
-5. **Valor de referencia:** percentiles ponderados. **P25 = "precio de venta rápida"**, que es la referencia conservadora por defecto, y **P50 = mediana**.
-   El precio de venta esperado es $S = \text{P30}$ por defecto: prima la rotación sobre exprimir el margen.
-6. **Confianza del valor:** $C_{fmv} = \min\left(1,\ \sqrt{n_{\text{eff}} / n_{\min}}\right)$, con $n_{\min} = 12$ y $n_{\text{eff}} = (\sum w)^2/\sum w^2$.
-7. **Muestras escasas por estado:** se usan multiplicadores relativos a "Muy bueno". Son **hipótesis iniciales que hay que calibrar con datos propios**:
+5. **Valor de referencia:** percentiles ponderados (Hazen). El **precio de venta rápida** es un percentil bajo de los comparables (`VA_FMV_PERCENTILE`, P30 por defecto): para vender rápido tienes que estar entre los más baratos de tu competencia.
+   El precio de venta esperado es $S = \kappa \cdot \text{P30}$. También se registran P25, P50 y P75.
+6. **Comparables válidos:** solo cuentan los anuncios con SKU completo, *matching* ≥0,8 y estado conocido, sin señales de descarte ni pantalla rota, lote ambiguo, contacto fuera de la plataforma o "solo cambio". El candidato se excluye de su propio mercado.
+7. **Confianza del valor:** $C_{fmv} = \min\left(1,\ \sqrt{n_{\text{eff}} / n_{\min}}\right)$, con $n_{\min} = 12$ y $n_{\text{eff}} = (\sum w)^2/\sum w^2$.
+8. **Muestras escasas por estado:** se agregan todos los estados del SKU normalizados con multiplicadores relativos a "Muy bueno", con un factor de confianza de 0,85. Los multiplicadores son **hipótesis iniciales que hay que calibrar con datos propios**:
 
 | Estado canónico | Etiqueta en Vinted (ES) | Multiplicador inicial |
 |---|---|---:|
@@ -226,7 +258,8 @@ Si se cumplen, se registran las operaciones reales (compra y venta) para **calib
 | `fair` | Satisfactorio | 0,78 |
 | `for_parts` | (se detecta en el texto) | 0,35 |
 
-8. **Ajustes por accesorios y otros factores:**
+9. **Combinación con el price book:** si conviven, $S = c \cdot S_{\text{mercado}} + (1-c)\cdot S_{\text{book}}$, siendo $c$ la confianza del mercado. La confianza del book es 0,7 si el precio tiene ≤30 días, 0,5 si tiene ≤90 y 0,3 si es más antiguo: la electrónica se deprecia.
+10. **Ajustes por accesorios y otros factores** (pendiente, M3.1):
    - Caja y factura: +3–5 %.
    - Falta el mando de una consola: −40 €.
    - Batería del iPhone por debajo del 80 %: −8 %.
@@ -291,6 +324,7 @@ $$
 - **Probabilidad de vender en el horizonte $T$** al precio $S$: $P_{\text{venta}}(T) = 1 - e^{-\lambda_{\text{eff}} T}$,
   donde $\lambda_{\text{eff}}$ es el ritmo de salida de los anuncios con precio ≤ $S$, sacado de su supervivencia.
 - **Filtro:** $P_{\text{venta}}(14\,\text{días}) \geq 0{,}5$ y al menos 2 ventas por semana observadas en el mercado.
+- **Estado:** pendiente de M1.1, porque requiere detectar ventas reales en Vinted. Hasta entonces $P_{\text{venta}} = 1$ y la rotación la controla el percentil de venta rápida.
 - **ROI anualizado**, para comparar usos del capital: $\text{ROI}_{\text{anual}} = (1+\text{ROI})^{365/\text{TTS}} - 1$, siendo TTS el tiempo hasta la venta.
 
 #### Puntuación final y regla de alerta
@@ -308,9 +342,26 @@ $$
 - **Se alerta si se cumplen todas estas condiciones:**
   - Margen neto ≥ `VA_MIN_NET_PROFIT_EUR`.
   - ROI ≥ `VA_MIN_ROI`.
-  - $C_{\text{match}} \ge 0{,}8$ y $C_{\text{fmv}} \ge 0{,}6$.
-  - $P_{\text{venta}}(14\,\text{días}) \ge 0{,}5$.
+  - $C_{\text{match}} \ge 0{,}8$ y $C_{\text{fmv}} \ge 0{,}6$ (`VA_MIN_MATCH_CONFIDENCE`, `VA_MIN_FMV_CONFIDENCE`).
+  - Riesgo combinado $R \le 0{,}5$ (`VA_MAX_RISK`).
+  - $P_{\text{venta}}(14\,\text{días}) \ge 0{,}5$ (cuando exista M1.1).
   - Ninguna señal de alarma grave.
+
+- **Decisiones** (implementadas en `valuation/opportunity.py`):
+  - `alert`: cumple todo y se notifica.
+  - `watch`: margen positivo, pero algún umbral falla; se guarda para analizarlo en modo sombra.
+  - `reject`: se descarta.
+
+- **Riesgos blandos implementados:**
+
+  | Señal | $r$ |
+  |---|---:|
+  | Contacto fuera de la plataforma | 0,6 |
+  | Pantalla dañada | 0,5 |
+  | Lote ambiguo | 0,4 |
+  | "Solo cambio" | 0,3 |
+  | Batería <80 % | 0,15 |
+  | Estado desconocido (se valora como "bueno") | 0,1 |
 
 ### 3.4 Stack tecnológico
 
@@ -373,9 +424,10 @@ flowchart LR
   end
   PAR --> DB[("SQLite WAL<br/>listings · price_history<br/>kv · poll_runs")]
   DB --> M2["Módulo 2 · Normalizador<br/>(núcleo implementado)"]
-  M2 --> M3["Módulo 3 · Valoración y margen<br/>(comisiones implementadas)"]
-  REF["Referencias<br/>price book · eBay Browse<br/>Wallapop · histórico · CeX"] --> M3
-  M3 --> M4["Módulo 4 · Alertas<br/>Telegram / Discord"]
+  M2 --> M3["Módulo 3 · Valoración contra<br/>el mercado de Vinted (implementado)"]
+  DB -- "comparables por SKU" --> M3
+  REF["Price book manual<br/>(+ vendidos en M1.1)"] --> M3
+  M3 --> M4["Módulo 4 · Alertas<br/>Telegram / Discord (implementado)"]
   M5["Módulo 5 · CLI / panel"] -. "búsquedas" .-> SCH
   M5 -. "umbrales" .-> M3
 ```
@@ -389,11 +441,13 @@ flowchart LR
 ├── requirements.txt / requirements-dev.txt
 ├── .env.example               ← toda la configuración por variables VA_*
 ├── config/searches.yaml       ← búsquedas guardadas
+├── config/price_book.csv      ← precios de venta manuales para arrancar (opcional)
 ├── src/vinted_arb/
 │   ├── config.py              ← Settings (pydantic-settings) + carga de búsquedas
 │   ├── models.py              ← SearchQuery, Listing, CatalogPage
 │   ├── wiring.py              ← composición de dependencias desde Settings
-│   ├── cli.py                 ← vinted-arb poll | runs | fees | parse-title | init-db
+│   ├── pipeline.py            ← orquestación: normalizar → valorar → alertar
+│   ├── cli.py                 ← vinted-arb poll | runs | market | opps | evaluate | fees | parse-title | alert-test
 │   ├── ingestion/             ← MÓDULO 1
 │   │   ├── backoff.py         ← política de reintento exponencial con jitter
 │   │   ├── circuit_breaker.py ← CLOSED/OPEN/HALF_OPEN, enfriamiento creciente, snapshot
@@ -405,13 +459,18 @@ flowchart LR
 │   │   ├── vinted_client.py   ← sesión, reintentos, breaker, búsqueda
 │   │   ├── engine.py          ← planificador, deduplicación, paginación, línea base
 │   │   └── errors.py
-│   ├── storage/               ← SQLite: migraciones y repositorios
+│   ├── storage/               ← SQLite: migraciones, anuncios, entidades, oportunidades
 │   ├── normalization/         ← MÓDULO 2 (núcleo): texto, estado, catálogo, extractor
-│   └── valuation/             ← MÓDULO 3 (núcleo): comisiones y margen
+│   ├── valuation/             ← MÓDULO 3
+│   │   ├── fees.py            ← comisiones, margen, ROI, REBU, precio máximo de compra
+│   │   ├── market.py          ← percentiles ponderados, MAD, agregación por estado
+│   │   ├── reference.py       ← mercado de Vinted + price book → precio de venta esperado
+│   │   └── opportunity.py     ← riesgo, score y decisión alert/watch/reject
+│   └── alerts/                ← MÓDULO 4: formato y notificadores Telegram/Discord
 └── tests/                     ← pytest (unitarios + contrato `live` opcional)
 ```
 
-### 4.3 Modelo de datos (v1)
+### 4.3 Modelo de datos (esquema v2)
 
 | Tabla | Contenido | Para qué |
 |---|---|---|
@@ -420,8 +479,8 @@ flowchart LR
 | `kv` | Estado persistente (breaker, búsquedas con línea base completada) | Que un reinicio no se salte el enfriamiento |
 | `poll_runs` | Cada ejecución: búsqueda, duración, vistos, nuevos, estado, error | Observabilidad y KPIs del modo sombra |
 
-En el Módulo 3 se añaden `reference_observations`, `reference_prices` (por SKU y estado: P25, P50, n, confianza) y `opportunities`.
-En el Módulo 4 se añade `alerts_sent` (deduplicación de alertas).
+| `listing_entities` | Resultado del normalizador por anuncio: SKU, estado, confianza, señales, `market_eligible`, versión del normalizador | Agregar el mercado por SKU; se recalcula solo al subir `NORMALIZER_VERSION` |
+| `opportunities` | Última evaluación por anuncio: precio, venta esperada, margen, ROI, score, decisión, motivos, desglose, `alerted_at` y `alerted_price_cents` | KPIs del modo sombra; deduplicación de alertas (se vuelve a avisar solo si el precio baja ≥3 %) |
 
 ### 4.4 Patrones de resiliencia del Módulo 1
 
@@ -442,11 +501,11 @@ En el Módulo 4 se añade `alerts_sent` (deduplicación de alertas).
 
 | Hito | Alcance | Criterios de aceptación | Estado |
 |---|---|---|---|
-| **M0** | Arquitectura, entorno base (`.env.example`, `pyproject`, `requirements`, `.gitignore`), **Módulo 1 completo**, núcleo del normalizador y comisiones con tests | `pytest` en verde; `ruff` y `mypy` limpios; `vinted-arb poll --once` funciona en una máquina con salida a Vinted | ✅ Esta entrega |
-| **M1.1** | Endurecer el Módulo 1: test de contrato `live`; **etapa 2** (detalle del anuncio: descripción y valoraciones del vendedor) solo para candidatos; tarea de **detección de vendidos o retirados** (revisar anuncios que dejan de aparecer); horario activo configurable | Tasa de bloqueo ≤1 al día durante 7 días en modo sombra | Siguiente |
+| **M0** | Arquitectura, entorno base (`.env.example`, `pyproject`, `requirements`, `.gitignore`), **Módulo 1 completo**, núcleo del normalizador y comisiones con tests | `pytest` en verde; `ruff` y `mypy` limpios; `vinted-arb poll --once` funciona en una máquina con salida a Vinted | ✅ |
+| **M1.1** | Endurecer el Módulo 1: **detección de vendidos o retirados en Vinted** (prioritaria con Vinted como canal: calibra κ y da la liquidez); test de contrato `live`; **etapa 2** (detalle del anuncio: descripción y valoraciones del vendedor) solo para candidatos; horario activo configurable | Tasa de bloqueo ≤1 al día durante 7 días en modo sombra | Siguiente |
 | **M2** | Normalizador v2: catálogo de los ~100 SKUs principales en YAML, nivel *fuzzy*, **dataset etiquetado de ≥500 títulos** con métricas de precisión y *recall* por familia | Precisión de SKU ≥97 % en el conjunto de test | Pendiente |
-| **M3** | Valoración: ingesta de referencias (*price book* CSV, eBay Browse API, histórico propio, Wallapop), percentiles ponderados, κ, liquidez, *score* y tabla `opportunities` | Error absoluto mediano del valor de referencia ≤10 % frente a ventas reales registradas | Pendiente |
-| **M4** | Alertas: Telegram (foto, desglose, botón al anuncio) y Discord; deduplicación; límite de alertas; resumen diario; alertas de salud | Latencia p50 entre detección y alerta < 5 s; cero duplicados | Pendiente |
+| **M3** | Valoración contra el **mercado propio de Vinted**: comparables, percentiles ponderados, MAD, agregación por estado, κ, *price book*, riesgo, *score* y tabla `opportunities` | Error absoluto mediano del valor de referencia ≤10 % frente a ventas reales registradas | ✅ Núcleo. Pendiente: liquidez (depende de M1.1) y ajustes por accesorios (M3.1) |
+| **M4** | Alertas: Telegram (foto, desglose, botón al anuncio) y Discord; deduplicación por anuncio y precio; límite por hora; alertas de salud | Latencia p50 entre detección y alerta < 5 s; cero duplicados | ✅ Pendiente: resumen diario |
 | **M5** | CLI (Typer + Rich) para gestionar búsquedas, umbrales e informes del modo sombra; **registro de operaciones reales** (compra y venta) para calibrar; panel opcional (Datasette o Streamlit) | P&L real frente a estimado por familia | Pendiente |
 
 ---
@@ -457,8 +516,10 @@ En el Módulo 4 se añade `alerts_sent` (deduplicación de alertas).
 2. **Envío de ida** (4,50 €) y **de vuelta** (6,00 €): dependen del transportista y del tamaño. Ajústalos por familia, porque una GPU no pesa lo mismo que unos AirPods.
 3. **Comisiones de eBay.es** para particulares (11,5 % + 0,35 €): revisa la página oficial de tarifas. La reforma de julio de 2026 afectó a vendedores comerciales.
 4. **Protección de Wallapop:** la paga el comprador, así que no afecta a tu margen directo, pero sí al precio que el mercado está dispuesto a pagar.
-5. **Etiquetas de estado de Vinted en electrónica** y **IDs de categoría** (`catalog_ids`): se descubren en la primera ejecución real y se configuran en `config/searches.yaml`.
-6. **Multiplicadores de estado y κ:** son hipótesis iniciales y se calibran con los datos del modo sombra.
+5. **Si pasas a Vinted Pro:** confirma si hay comisión para el vendedor Pro y cuánto paga el comprador ("Buyer Protection Pro"). Si el vendedor paga algo, crea un canal propio en `valuation/fees.py`.
+6. **Coste del Bump:** depende del precio del artículo y de la duración (3 o 7 días). Consulta el importe en la app antes de fijar `VA_PROMOTION_EUR`.
+7. **Etiquetas de estado de Vinted en electrónica** y **IDs de categoría** (`catalog_ids`): se descubren en la primera ejecución real y se configuran en `config/searches.yaml`.
+8. **Multiplicadores de estado, P30 y κ = 0,92:** son hipótesis iniciales y se calibran con los datos del modo sombra.
 
 ---
 
@@ -470,13 +531,16 @@ En el Módulo 4 se añade `alerts_sent` (deduplicación de alertas).
 - Persistencia y deduplicación de anuncios, y detección de anuncios nuevos y de cambios de precio.
 - Normalización de títulos a SKU, estado, accesorios y señales de alarma.
 - Cálculo exacto de comisiones, margen y precio máximo de compra.
-- CLI para todo lo anterior.
+- Valoración de cada anuncio nuevo o rebajado contra el mercado propio de Vinted y el *price book*, con decisión `alert`, `watch` o `reject`.
+- Alertas por Telegram (foto, desglose y botón al anuncio) y Discord, con deduplicación, límite por hora y avisos de salud.
+- CLI para todo lo anterior (`market`, `opps`, `evaluate`, `alert-test`…).
 
 **No hace (todavía):**
 
-- Valoración contra referencias (M3).
-- Alertas (M4).
+- Detectar ventas reales en Vinted, que alimentarán la liquidez y la calibración de κ (M1.1).
 - Etapa 2 de detalle del anuncio (M1.1).
+- Ajustes de precio por accesorios (M3.1).
+- Resumen diario (M4).
 
 **No hará:**
 
@@ -496,4 +560,7 @@ En el Módulo 4 se añade `alerts_sent` (deduplicación de alertas).
 - eBay Developers, estado de retirada de APIs (Finding API, 5 de febrero de 2025): <https://developer.ebay.com/develop/apis/api-deprecation-status>
 - eBay Developers, Marketplace Insights API (lanzamiento limitado): <https://developer.ebay.com/api-docs/buy/marketplace-insights/overview.html>
 - OpenWeb Ninja, inicio de sesión obligatorio en las búsquedas de vendidos de eBay desde el 22 de julio de 2026 (fuente comercial, sin confirmación oficial): <https://www.openwebninja.com/blog/how-to-get-ebay-sold-and-completed-listings>
+- Vinted, servicio Vinted Pro (quién puede darse de alta, 1 cuenta estándar + 1 Pro, Buyer Protection Pro): <https://www.vinted.com/help/918>
+- Vinted Reino Unido, ayuda de Vinted Pro (retirada de anuncios y baneo de cuentas estándar con actividad comercial): <https://www.vinted.co.uk/help/1120>
+- Vinted, "What is an item Bump?": <https://www.vinted.com/help/340>
 - Comisiones de Wallapop en 2026 (fuentes de terceros): <https://ruit.es/herramientas/calculadora-comisiones-wallapop/> · <https://blog.beseif.com/wallapop-protect-funcionamiento-precios/>

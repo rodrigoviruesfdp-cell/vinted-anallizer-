@@ -325,3 +325,20 @@ async def test_run_forever_waits_out_open_breaker(conn, clock: FakeClock) -> Non
 def test_duplicate_search_names_rejected(conn, clock: FakeClock) -> None:  # type: ignore[no-untyped-def]
     with pytest.raises(ValueError):
         EngineHarness(conn, clock, [PS5, PS5])
+
+
+async def test_on_polled_runs_on_baseline_and_before_on_new(conn, clock: FakeClock) -> None:  # type: ignore[no-untyped-def]
+    h = EngineHarness(conn, clock, [PS5], [page([1]), page([2, 1])])
+    order: list[str] = []
+
+    async def on_polled(query: SearchQuery, outcome) -> None:  # type: ignore[no-untyped-def]
+        order.append(f"polled:{outcome.status}")
+
+    async def on_new(query: SearchQuery, result: UpsertResult) -> None:
+        order.append("new")
+
+    h.engine._on_polled = on_polled
+    h.engine._on_new = on_new
+    await h.engine.poll_search(PS5)
+    await h.engine.poll_search(PS5)
+    assert order == ["polled:baseline", "polled:ok", "new"]

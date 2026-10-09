@@ -24,6 +24,9 @@ from vinted_arb.normalization.text import (
     normalize_text,
 )
 
+# Súbelo al cambiar reglas del normalizador: las entidades guardadas se recalculan solas.
+NORMALIZER_VERSION = 1
+
 
 @dataclass(frozen=True, slots=True)
 class ExtractedEntity:

@@ -101,6 +101,7 @@ class TestComputeMargin:
             - b.inbound_shipping
             - b.outbound_shipping
             - b.packaging
+            - b.promotion
             - b.risk_reserve
             - b.vat_on_margin
         )
@@ -133,6 +134,15 @@ class TestComputeMargin:
         b = compute_margin(purchase_price="300", sale_price="290")
         assert b.net_margin < 0
         assert b.roi < 0
+
+    def test_vinted_resale_with_bump(self) -> None:
+        costs = DealCosts(promotion=D("2.45"))
+        b = compute_margin(purchase_price="220", sale_price="300", channel=VINTED, costs=costs)
+        assert b.resale_fees == D("0.00")  # en Vinted el vendedor no paga comisión
+        assert b.outbound_shipping == D("0.00")  # el envío lo paga el comprador
+        assert b.promotion == D("2.45")
+        assert b.net_margin == D("53.25")  # 55,70 − 2,45
+        assert b.cash_invested == D("240.15")
 
     def test_negative_costs_rejected(self) -> None:
         with pytest.raises(ValueError):

@@ -137,3 +137,65 @@ class TestCli:
         searches = str(REPO_ROOT / "config" / "searches.yaml")
         assert main(["poll", "--once", "--searches", searches, "--search", "no-existe"]) == 2
         assert "desconocidas" in capsys.readouterr().err
+
+
+class TestValuationCli:
+    @pytest.fixture
+    def env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        monkeypatch.setenv("VA_DB_PATH", str(tmp_path / "db.sqlite3"))
+        book = tmp_path / "book.csv"
+        book.write_text(
+            "sku,condition,price_eur,updated_at,notes\n"
+            # Fecha futura: el test no caduca por envejecimiento del precio manual.
+            "console:ps5-slim:digital,,320,2099-01-01,referencia manual\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("VA_PRICE_BOOK_FILE", str(book))
+        return tmp_path
+
+    def test_evaluate_against_price_book(
+        self, env: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = main(["evaluate", "PS5 Slim Digital 1TB", "--price", "200", "--status", "Muy bueno"])
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "Decisión: ALERT" in out
+        assert "price_book" in out
+        assert "Margen neto: 97,30 €" in out  # 320 − 200 − 10,70 − 4,50 − 1,50 − 6,00
+
+    def test_evaluate_rejects_accessory(
+        self, env: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["evaluate", "Mando PS5 DualSense", "--price", "30"]) == 0
+        assert "Decisión: REJECT" in capsys.readouterr().out
+
+    def test_market_and_opps_without_data(
+        self, env: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["market"]) == 0
+        assert "Aún no hay comparables" in capsys.readouterr().out
+        assert main(["market", "--sku", "console:ps5-slim:digital"]) == 0
+        assert "price_book" in capsys.readouterr().out
+        assert main(["opps"]) == 0
+        assert "Evaluaciones: ninguna" in capsys.readouterr().out
+
+    def test_alert_test_requires_a_channel(
+        self, env: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["alert-test"]) == 2
+        assert "No hay canales configurados" in capsys.readouterr().err
+
+    def test_fees_defaults_to_vinted_channel(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["fees", "--buy", "220", "--sell", "300", "--promotion", "2.45"]) == 0
+        out = capsys.readouterr().out
+        assert "channel            vinted" in out
+        assert "net_margin         53.25" in out
+
+    def test_invalid_price_book_is_a_config_error(
+        self, env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        bad = env / "bad.csv"
+        bad.write_text("sku,condition,price_eur\nx:y,nuevo_raro,10\n", encoding="utf-8")
+        monkeypatch.setenv("VA_PRICE_BOOK_FILE", str(bad))
+        assert main(["evaluate", "PS5 Slim Digital 1TB", "--price", "200"]) == 2
+        assert "estado 'nuevo_raro' inválido" in capsys.readouterr().err

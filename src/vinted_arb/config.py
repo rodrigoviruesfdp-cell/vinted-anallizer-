@@ -48,11 +48,32 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/vinted_arb.sqlite3")
     searches_file: Path = Path("config/searches.yaml")
 
-    # Umbrales (Módulo 3)
+    # Reventa y costes (Módulo 3)
+    resale_channel: Literal["vinted", "wallapop", "ebay_es_private", "local_cash"] = "vinted"
+    inbound_shipping_eur: Decimal = Field(default=Decimal("4.50"), ge=0)
+    outbound_shipping_eur: Decimal = Field(default=Decimal("6.00"), ge=0)
+    packaging_eur: Decimal = Field(default=Decimal("1.50"), ge=0)
+    promotion_eur: Decimal = Field(default=Decimal("0"), ge=0)
+    risk_reserve_rate: Decimal = Field(default=Decimal("0.03"), ge=0, le=1)
+    rebu_enabled: bool = False
+
+    # Valoración (Módulo 3)
+    fmv_percentile: float = Field(default=0.30, gt=0, lt=1)
+    fmv_ask_to_sale: Decimal = Field(default=Decimal("0.92"), gt=0, le=1)
+    fmv_window_days: int = Field(default=30, ge=1)
+    fmv_half_life_days: float = Field(default=14.0, gt=0)
+    fmv_min_samples: int = Field(default=12, ge=1)
+    price_book_file: Path = Path("config/price_book.csv")
+
+    # Umbrales de oportunidad (Módulo 3)
     min_net_profit_eur: Decimal = Field(default=Decimal("30"), ge=0)
     min_roi: Decimal = Field(default=Decimal("0.20"), ge=0)
+    min_match_confidence: float = Field(default=0.80, ge=0, le=1)
+    min_fmv_confidence: float = Field(default=0.60, ge=0, le=1)
+    max_risk: float = Field(default=0.50, ge=0, le=1)
 
     # Alertas (Módulo 4)
+    alert_max_per_hour: int = Field(default=30, ge=1)
     telegram_bot_token: SecretStr | None = None
     telegram_chat_id: str | None = None
     discord_webhook_url: SecretStr | None = None

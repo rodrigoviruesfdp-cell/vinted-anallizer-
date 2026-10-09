@@ -62,6 +62,45 @@ _MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_poll_runs_search ON poll_runs(search_name, started_at);
     """,
+    # v2: normalización (Módulo 2) y valoración/alertas (Módulos 3-4)
+    """
+    CREATE TABLE listing_entities (
+        listing_id          INTEGER PRIMARY KEY REFERENCES listings(id) ON DELETE CASCADE,
+        normalizer_version  INTEGER NOT NULL,
+        sku                 TEXT,
+        family              TEXT,
+        condition           TEXT    NOT NULL,
+        match_confidence    REAL    NOT NULL,
+        red_flags           TEXT    NOT NULL,
+        accessories         TEXT    NOT NULL,
+        battery_health      INTEGER,
+        market_eligible     INTEGER NOT NULL,
+        normalized_at       TEXT    NOT NULL
+    );
+    CREATE INDEX idx_entities_market ON listing_entities(sku, market_eligible);
+
+    CREATE TABLE opportunities (
+        listing_id            INTEGER PRIMARY KEY REFERENCES listings(id) ON DELETE CASCADE,
+        evaluated_at          TEXT    NOT NULL,
+        sku                   TEXT,
+        condition             TEXT    NOT NULL,
+        price_cents           INTEGER NOT NULL,
+        expected_sale_cents   INTEGER,
+        net_margin_cents      INTEGER,
+        roi                   REAL,
+        score                 REAL    NOT NULL,
+        match_confidence      REAL    NOT NULL,
+        fmv_confidence        REAL,
+        risk                  REAL    NOT NULL,
+        reference_source      TEXT,
+        decision              TEXT    NOT NULL,
+        reasons               TEXT    NOT NULL,
+        breakdown             TEXT,
+        alerted_at            TEXT,
+        alerted_price_cents   INTEGER
+    );
+    CREATE INDEX idx_opportunities_decision ON opportunities(decision, evaluated_at);
+    """,
 )
 
 SCHEMA_VERSION = len(_MIGRATIONS)
