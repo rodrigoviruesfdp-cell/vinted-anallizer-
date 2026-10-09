@@ -1,0 +1,48 @@
+{
+  "_comment": "Payload SINTÉTICO que reproduce las variantes de esquema conocidas de /api/v2/catalog/items. No son datos reales.",
+  "items": [
+    {
+      "id": 5001,
+      "title": "PS5 Slim Digital 1TB",
+      "price": {"amount": "320.0", "currency_code": "EUR"},
+      "total_item_price": {"amount": "336.70", "currency_code": "EUR"},
+      "service_fee": {"amount": "16.70", "currency_code": "EUR"},
+      "brand_title": "Sony",
+      "status": "Muy bueno",
+      "size_title": "",
+      "url": "https://www.vinted.es/items/5001-ps5-slim-digital",
+      "photo": {
+        "url": "https://images.example/f800/5001.jpeg",
+        "full_size_url": "https://images.example/full/5001.jpeg",
+        "high_resolution": {"timestamp": 1760000000}
+      },
+      "user": {"id": 77, "login": "vendedor_a"},
+      "favourite_count": 3,
+      "view_count": 41
+    },
+    {
+      "id": 5002,
+      "title": "iPhone 13 128GB",
+      "price": "410.0",
+      "currency": "EUR",
+      "status": "Bueno",
+      "url": "/items/5002-iphone-13",
+      "photos": [
+        {"url": "https://images.example/5002a.jpeg"},
+        {"url": "https://images.example/5002b.jpeg"}
+      ],
+      "user": {"id": 78}
+    },
+    {
+      "id": 5003,
+      "title": "Mando PS5",
+      "price": {"amount": "35.0", "currency_code": "EUR"},
+      "brand": {"id": 12, "title": "Sony"},
+      "user": {"id": 79}
+    },
+    {"id": "no-numerico", "title": "sin id válido", "price": "10"},
+    {"id": 5004, "title": "sin precio"},
+    {"id": 5001, "title": "PS5 Slim Digital 1TB (duplicado en la misma página)", "price": "320.0"}
+  ],
+  "pagination": {"current_page": 1, "total_pages": 3, "total_entries": 250, "per_page": 96}
+}

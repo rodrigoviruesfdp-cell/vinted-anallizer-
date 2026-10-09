@@ -392,7 +392,8 @@ flowchart LR
 ├── src/vinted_arb/
 │   ├── config.py              ← Settings (pydantic-settings) + carga de búsquedas
 │   ├── models.py              ← SearchQuery, Listing, CatalogPage
-│   ├── cli.py                 ← vinted-arb poll | fees | parse-title | init-db
+│   ├── wiring.py              ← composición de dependencias desde Settings
+│   ├── cli.py                 ← vinted-arb poll | runs | fees | parse-title | init-db
 │   ├── ingestion/             ← MÓDULO 1
 │   │   ├── backoff.py         ← política de reintento exponencial con jitter
 │   │   ├── circuit_breaker.py ← CLOSED/OPEN/HALF_OPEN, enfriamiento creciente, snapshot
@@ -428,10 +429,11 @@ En el Módulo 4 se añade `alerts_sent` (deduplicación de alertas).
 |---|---|---|
 | **Rate limiting** | *Token bucket* asíncrono global + *jitter* en cada petición | 6/min, ráfaga 2, *jitter* del 35 % del intervalo |
 | **Backoff exponencial** | *Equal jitter*, con espera mínima garantizada (más prudente que el *full jitter* frente a un servidor que limita). Respeta `Retry-After`. | Base 3 s, ×2, máximo 90 s, 4 intentos |
-| **Circuit breaker** | Pasa a OPEN tras 3 fallos blandos seguidos o **al instante con un fallo duro** (403 o captcha). HALF_OPEN deja pasar 1 sonda. El enfriamiento crece en cada apertura consecutiva. El estado se guarda en `kv`. | 15 min → 30 → 60 … hasta 6 h |
+| **Circuit breaker** | Pasa a OPEN tras 3 fallos blandos seguidos o **al instante con un fallo duro** (403 o captcha). HALF_OPEN deja pasar 1 sonda, que caduca a los 120 s si no informa de su resultado, para que el breaker nunca se quede atascado. El enfriamiento crece en cada apertura consecutiva. El estado se guarda en `kv`. | 15 min → 30 → 60 … hasta 6 h |
 | **Sesión** | Arranque por la *home* para obtener cookies. Se renueva a los 40 min o con un `401`; si es por caducidad, mantiene el perfil. Se **descarta con cambio de perfil** tras un bloqueo. | — |
 | **Detección de cambios de esquema** | Falta `items` → `SchemaDriftError`. Un anuncio malformado se descarta y se registra sin tumbar el lote. | — |
 | **Línea base** | La primera consulta de una búsqueda marca todo como visto sin emitir "nuevos", para no inundar de alertas. | Por búsqueda, en `kv` |
+| **Aislamiento de fallos** | Un error inesperado en una consulta, o en el consumidor de anuncios nuevos, se registra y no detiene el bucle continuo. `poll --once` sale con código ≠ 0 si alguna búsqueda no obtuvo datos. | — |
 | **Paginación incremental** | La página siguiente solo se pide si el anuncio más antiguo de la actual también es nuevo. | `max_pages` por búsqueda |
 
 ---
